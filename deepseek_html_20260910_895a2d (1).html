@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Previsão do Tempo - Arujá</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    min-height: 100vh;
+    overflow: hidden;
+    color: #fff;
+  }
+
+  /* ===== CENA DE FUNDO ===== */
+  #cena {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    transition: background 2s ease;
+  }
+  #cena.ensolarado {
+    background: linear-gradient(180deg, #1e90ff 0%, #87ceeb 45%, #ffd89b 100%);
+  }
+  #cena.chuvoso {
+    background: linear-gradient(180deg, #1a2530 0%, #2c3e50 50%, #34495e 100%);
+  }
+  #cena.nevando {
+    background: linear-gradient(180deg, #4a6075 0%, #8fa8bd 60%, #dbe6ef 100%);
+  }
+  #cena.neutro {
+    background: linear-gradient(180deg, #4a5568 0%, #718096 50%, #a0aec0 100%);
+  }
+
+  /* Sol */
+  #sol {
+    position: absolute;
+    top: 8%;
+    right: 12%;
+    width: 140px;
+    height: 140px;
+    opacity: 0;
+    transition: opacity 2s ease;
+    pointer-events: none;
+  }
+  #cena.ensolarado #sol { opacity: 1; }
+  #sol .nucleo {
+    position: absolute;
+    inset: 20px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #fffbe6 0%, #ffd93b 45%, #ffb300 75%, #ff9800 100%);
+    box-shadow: 0 0 60px 20px rgba(255, 214, 59, 0.65),
+                0 0 120px 50px rgba(255, 179, 0, 0.35);
+    animation: pulsar 3s ease-in-out infinite;
+  }
+  #sol .raio {
+    position: absolute;
+    inset: 0;
+    animation: girar 30s linear infinite;
+  }
+  #sol .raio::before,
+  #sol .raio::after {
+    content: '';
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 4px;
+    height: 160px;
+    background: linear-gradient(180deg, transparent, rgba(255,236,150,0.9), transparent);
+    transform-origin: center;
+    border-radius: 2px;
+  }
+  #sol .raio::before { transform: translate(-50%, -50%) rotate(0deg); }
+  #sol .raio::after  { transform: translate(-50%, -50%) rotate(60deg); }
+  #sol .raio2 {
+    position: absolute;
+    inset: 0;
+    animation: girar 30s linear infinite reverse;
+  }
+  #sol .raio2::before {
+    content: '';
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 4px;
+    height: 160px;
+    background: linear-gradient(180deg, transparent, rgba(255,236,150,0.9), transparent);
+    transform: translate(-50%, -50%) rotate(120deg);
+    border-radius: 2px;
+  }
+  @keyframes pulsar {
+    0%, 100% { transform: scale(1); filter: brightness(1); }
+    50%      { transform: scale(1.06); filter: brightness(1.15); }
+  }
+  @keyframes girar { to { transform: rotate(360deg); } }
+
+  /* Canvas de partículas (chuva/neve) */
+  #particulas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Chão molhado / neve acumulada */
+  #chao {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 22%;
+    opacity: 0;
+    transition: opacity 2s ease, background 2s ease;
+    pointer-events: none;
+  }
+  #cena.chuvoso #chao {
+    opacity: 1;
+    background: linear-gradient(180deg, transparent 0%,
+                rgba(20,40,60,0.55) 40%,
+                rgba(10,25,40,0.9) 100%);
+    box-shadow: inset 0 30px 60px -20px rgba(120,180,220,0.25);
+  }
+  #cena.chuvoso #chao::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(ellipse 120px 12px at 15% 60%, rgba(160,210,240,0.35), transparent 70%),
+      radial-gradient(ellipse 90px 10px at 45% 75%, rgba(160,210,240,0.30), transparent 70%),
+      radial-gradient(ellipse 150px 14px at 78% 55%, rgba(160,210,240,0.32), transparent 70%);
+    animation: brilharPoca 4s ease-in-out infinite;
+  }
+  @keyframes brilharPoca {
+    0%,100% { opacity: 0.6; }
+    50%     { opacity: 1; }
+  }
+  #cena.nevando #chao {
+    opacity: 1;
+    background: linear-gradient(180deg, transparent 0%,
+                rgba(220,235,245,0.7) 50%,
+                #f4f9fd 100%);
+    box-shadow: inset 0 -20px 40px rgba(255,255,255,0.9);
+  }
+
+  /* Nuvens */
+  .nuvem {
+    position: absolute;
+    background: radial-gradient(ellipse, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 70%);
+    border-radius: 50%;
+    opacity: 0;
+    transition: opacity 2s ease;
+    pointer-events: none;
+  }
+  #cena.chuvoso .nuvem,
+  #cena.neutro .nuvem,
+  #cena.nevando .nuvem { opacity: 0.55; }
+  #cena.chuvoso .nuvem { background: radial-gradient(ellipse, rgba(60,80,100,0.9) 0%, rgba(60,80,100,0) 70%); opacity: 0.7; }
+
+  .nuvem1 { width: 340px; height: 120px; top: 6%;  left: -15%; animation: moverNuvem 45s linear infinite; }
+  .nuvem2 { width: 260px; height: 100px; top: 15%; left: -25%; animation: moverNuvem 65s linear infinite 3s; }
+  .nuvem3 { width: 420px; height: 140px; top: 3%;  left: -35%; animation: moverNuvem 80s linear infinite 6s; }
+
+  @keyframes moverNuvem {
+    from { transform: translateX(0); }
+    to   { transform: translateX(calc(100vw + 500px)); }
+  }
+
+  /* ===== PAINEL DE CONTEÚDO ===== */
+  #painel {
+    position: relative;
+    z-index: 10;
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 32px 24px 40px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .cabecalho {
+    text-align: center;
+    margin-bottom: 22px;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.45);
+  }
+  .cabecalho h1 {
+    font-size: 1.7rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  .cabecalho .sub {
+    font-size: 0.95rem;
+    opacity: 0.85;
+    margin-top: 4px;
+  }
+
+  .resumo {
+    background: rgba(15, 25, 40, 0.35);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 20px;
+    padding: 16px 20px;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    text-shadow: 0 1px 6px rgba(0,0,0,0.4);
+  }
+  .resumo .atual {
+    display: flex;
+    flex-direction: column;
+  }
+  .resumo .atual .temp {
+    font-size: 2.4rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .resumo .atual .desc {
+    font-size: 0.9rem;
+    opacity: 0.9;
+    margin-top: 6px;
+  }
+  .resumo .atual .hora {
+    font-size: 0.75rem;
+    opacity: 0.7;
+    margin-top: 2px;
+  }
+  .resumo .icone {
+    font-size: 3rem;
+    filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4));
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  .hora-card {
+    background: rgba(15, 25, 40, 0.35);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 16px;
+    padding: 14px 8px;
+    text-align: center;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+    transition: transform 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  }
+  .hora-card:hover {
+    transform: translateY(-4px);
+    background: rgba(15, 25, 40, 0.5);
+    box-shadow: 0 14px 32px rgba(0,0,0,0.35);
+  }
+  .hora-card .hora {
+    font-size: 0.85rem;
+    font-weight: 600;
+    opacity: 0.85;
+  }
+  .hora-card .temp {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 8px 0 4px;
+  }
+  .hora-card .chuva {
+    font-size: 0.78rem;
+    color: #9fd8ff;
+    font-weight: 500;
+  }
+  .hora-card .condicao {
+    font-size: 0.72rem;
+    opacity: 0.8;
+    margin-top: 6px;
+    line-height: 1.3;
+  }
+
+  .rodape {
+    text-align: center;
+    margin-top: 20px;
+    font-size: 0.78rem;
+    opacity: 0.7;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  }
+
+  .erro {
+    text-align: center;
+    padding: 20px;
+    background: rgba(220, 38, 38, 0.25);
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+
+  @media (max-width: 520px) {
+    .grid { grid-template-columns: repeat(2, 1fr); }
+    .resumo .atual .temp { font-size: 2rem; }
+    .resumo .icone { font-size: 2.4rem; }
+    #sol { width: 100px; height: 100px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== CENA DINÂMICA ===== -->
+<div id="cena" class="neutro">
+  <div class="nuvem nuvem1"></div>
+  <div class="nuvem nuvem2"></div>
+  <div class="nuvem nuvem3"></div>
+
+  <div id="sol">
+    <div class="raio"></div>
+    <div class="raio2"></div>
+    <div class="nucleo"></div>
+  </div>
+
+  <canvas id="particulas"></canvas>
+  <div id="chao"></div>
+</div>
+
+<!-- ===== PAINEL ===== -->
+<div id="painel">
+  <div class="cabecalho">
+    <h1>🌎 Arujá • SP</h1>
+    <div class="sub">Previsão para as próximas 4 horas</div>
+  </div>
+
+  <div id="conteudo">
+    <div class="erro">Carregando dados meteorológicos...</div>
+  </div>
+
+  <div class="rodape" id="atualizado"></div>
+</div>
+
+<script>
+/* =========================================================
+   CONFIGURAÇÕES
+   ========================================================= */
+const LAT = -23.3963;
+const LON = -46.3175;
+const URL_API = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}` +
+                `&hourly=temperature_2m,precipitation,weathercode,relativehumidity_2m,wind_speed_10m` +
+                `&forecast_hours=4&timezone=America/Sao_Paulo`;
+
+const REFRESH_MS = 60_000; // 1 minuto
+
+/* =========================================================
+   DICIONÁRIO WMO
+   ========================================================= */
+const WMO = {
+  0:  { d: "Céu limpo",                    i: "☀️" },
+  1:  { d: "Principalmente limpo",         i: "🌤️" },
+  2:  { d: "Parcialmente nublado",         i: "⛅" },
+  3:  { d: "Nublado",                      i: "☁️" },
+  45: { d: "Névoa",                        i: "🌫️" },
+  48: { d: "Névoa com geada",              i: "🌫️" },
+  51: { d: "Chuvisco leve",                i: "🌦️" },
+  53: { d: "Chuvisco moderado",            i: "🌦️" },
+  55: { d: "Chuvisco denso",               i: "🌧️" },
+  56: { d: "Chuvisco congelante leve",     i: "🌧️" },
+  57: { d: "Chuvisco congelante denso",    i: "🌧️" },
+  61: { d: "Chuva leve",                   i: "🌧️" },
+  63: { d: "Chuva moderada",               i: "🌧️" },
+  65: { d: "Chuva forte",                  i: "⛈️" },
+  66: { d: "Chuva congelante leve",        i: "🌧️" },
+  67: { d: "Chuva congelante forte",       i: "🌧️" },
+  71: { d: "Neve leve",                    i: "🌨️" },
+  73: { d: "Neve moderada",                i: "🌨️" },
+  75: { d: "Neve forte",                   i: "❄️" },
+  77: { d: "Grãos de neve",                i: "🌨️" },
+  80: { d: "Pancadas de chuva leves",      i: "🌦️" },
+  81: { d: "Pancadas de chuva moderadas",  i: "🌧️" },
+  82: { d: "Pancadas de chuva violentas",  i: "⛈️" },
+  85: { d: "Pancadas de neve leves",       i: "🌨️" },
+  86: { d: "Pancadas de neve fortes",      i: "❄️" },
+  95: { d: "Tempestade",                   i: "⛈️" },
+  96: { d: "Tempestade com granizo leve",  i: "⛈️" },
+  99: { d: "Tempestade com granizo forte", i: "⛈️" }
+};
+
+function infoWMO(codigo) {
+  return WMO[codigo] || { d: "Condição desconhecida", i: "❓" };
+}
+
+/* =========================================================
+   MOTOR DE PARTÍCULAS (CHUVA / NEVE)
+   ========================================================= */
+const canvas = document.getElementById('particulas');
+const ctx    = canvas.getContext('2d');
+let particulas = [];
+let modoAtual  = 'neutro';
+let animId     = null;
+
+function redimensionar() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', redimensionar);
+redimensionar();
+
+function criarParticulaChuva() {
+  return {
+    x: Math.random() * canvas.width,
+    y: Math.random() * -canvas.height,
+    len: 12 + Math.random() * 18,
+    vel: 8 + Math.random() * 8,
+    vento: 1.5 + Math.random() * 1.5,
+    opacidade: 0.25 + Math.random() * 0.4,
+    largura: 0.8 + Math.random() * 1.2
+  };
+}
+
+function criarParticulaNeve() {
+  return {
+    x: Math.random() * canvas.width,
+    y: Math.random() * -canvas.height,
+    r: 1.5 + Math.random() * 3,
+    vel: 0.6 + Math.random() * 1.2,
+    vento: -0.5 + Math.random() * 1.2,
+    opacidade: 0.5 + Math.random() * 0.5,
+    balanco: Math.random() * Math.PI * 2,
+    balancoVel: 0.01 + Math.random() * 0.03
+  };
+}
+
+function definirModo(novoModo) {
+  if (modoAtual === novoModo) return;
+  modoAtual = novoModo;
+  particulas = [];
+
+  if (novoModo === 'chuvoso') {
+    const qtd = Math.min(280, Math.floor(canvas.width / 5));
+    for (let i = 0; i < qtd; i++) particulas.push(criarParticulaChuva());
+  } else if (novoModo === 'nevando') {
+    const qtd = Math.min(180, Math.floor(canvas.width / 9));
+    for (let i = 0; i < qtd; i++) particulas.push(criarParticulaNeve());
+  }
+
+  if (novoModo === 'chuvoso' || novoModo === 'nevando') {
+    if (!animId) loopAnimacao();
+  } else {
+    if (animId) { cancelAnimationFrame(animId); animId = null; }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
+function loopAnimacao() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (modoAtual === 'chuvoso') {
+    ctx.lineCap = 'round';
+    for (const p of particulas) {
+      ctx.strokeStyle = `rgba(180, 220, 255, ${p.opacidade})`;
+      ctx.lineWidth = p.largura;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - p.vento * 2, p.y + p.len);
+      ctx.stroke();
+
+      p.y += p.vel;
+      p.x -= p.vento;
+
+      if (p.y > canvas.height) {
+        p.y = -p.len;
+        p.x = Math.random() * canvas.width;
+      }
+      if (p.x < -20) p.x = canvas.width + 20;
+    }
+  } else if (modoAtual === 'nevando') {
+    for (const p of particulas) {
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(255, 255, 255, ${p.opacidade})`;
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+
+      p.balanco += p.balancoVel;
+      p.y += p.vel;
+      p.x += Math.sin(p.balanco) * 0.6 + p.vento;
+
+      if (p.y > canvas.height) {
+        p.y = -10;
+        p.x = Math.random() * canvas.width;
+      }
+      if (p.x < -10) p.x = canvas.width + 10;
+      if (p.x > canvas.width + 10) p.x = -10;
+    }
+  }
+
+  animId = requestAnimationFrame(loopAnimacao);
+}
+
+/* =========================================================
+   LÓGICA DE CENÁRIO
+   ========================================================= */
+function decidirCenario(temperatura, precipitacao, codigo) {
+  const temChuva = precipitacao > 0.05;
+  const codigoNeve = [71, 73, 75, 77, 85, 86].includes(codigo);
+
+  if (codigoNeve || (temperatura < 5 && temChuva)) return 'nevando';
+  if (temChuva) return 'chuvoso';
+  if (temperatura > 28) return 'ensolarado';
+  if (temperatura > 20 && codigo <= 1) return 'ensolarado';
+  return 'neutro';
+}
+
+function aplicarCenario(cenario) {
+  const cena = document.getElementById('cena');
+  cena.className = cenario;
+  definirModo(cenario);
+}
+
+/* =========================================================
+   RENDERIZAÇÃO
+   ========================================================= */
+function formatarHora(iso) {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function renderizar(dados) {
+  const horas   = dados.hourly.time;
+  const temps   = dados.hourly.temperature_2m;
+  const chuvas  = dados.hourly.precipitation;
+  const codigos = dados.hourly.weathercode;
+  const umid    = dados.hourly.relativehumidity_2m;
+  const vento   = dados.hourly.wind_speed_10m;
+
+  // Cabeçalho atual (primeira hora = próxima hora)
+  const atualTemp = temps[0].toFixed(1);
+  const atualDesc = infoWMO(codigos[0]);
+  const agora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+  let html = `
+    <div class="resumo">
+      <div class="atual">
+        <div class="temp">${atualTemp}°C</div>
+        <div class="desc">${atualDesc.d}</div>
+        <div class="hora">Agora • ${agora} • 💧 ${umid[0]}% • 💨 ${vento[0].toFixed(0)} km/h</div>
+      </div>
+      <div class="icone">${atualDesc.i}</div>
+    </div>
+    <div class="grid">
+  `;
+
+  for (let i = 0; i < horas.length; i++) {
+    const info = infoWMO(codigos[i]);
+    html += `
+      <div class="hora-card">
+        <div class="hora">${formatarHora(horas[i])}</div>
+        <div class="temp">${temps[i].toFixed(1)}°C</div>
+        <div class="chuva">💧 ${chuvas[i].toFixed(1)} mm</div>
+        <div class="condicao">${info.i} ${info.d}</div>
+      </div>
+    `;
+  }
+  html += `</div>`;
+
+  document.getElementById('conteudo').innerHTML = html;
+
+  // Decide cenário com base na PRÓXIMA HORA (índice 0)
+  const cenario = decidirCenario(temps[0], chuvas[0], codigos[0]);
+  aplicarCenario(cenario);
+
+  document.getElementById('atualizado').textContent =
+    `Última atualização: ${agora} • Fonte: Open-Meteo`;
+}
+
+/* =========================================================
+   FETCH
+   ========================================================= */
+async function buscar() {
+  try {
+    const r = await fetch(URL_API);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const dados = await r.json();
+    if (!dados.hourly) throw new Error('Dados inválidos');
+    renderizar(dados);
+  } catch (e) {
+    console.error(e);
+    document.getElementById('conteudo').innerHTML =
+      `<div class="erro">⚠️ Não foi possível carregar a previsão.<br><small>${e.message}</small></div>`;
+  }
+}
+
+/* =========================================================
+   INICIALIZAÇÃO
+   ========================================================= */
+buscar();
+setInterval(buscar, REFRESH_MS);
+
+// Ao redimensionar, recria partículas do modo atual
+window.addEventListener('resize', () => {
+  const m = modoAtual;
+  modoAtual = 'neutro';
+  definirModo(m);
+});
+</script>
+</body>
+</html>
