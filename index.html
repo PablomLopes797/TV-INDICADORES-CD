@@ -57,6 +57,13 @@ body:not(.dark) .fs-hint{background:rgba(255,255,255,.88);color:#52627e;box-shad
 .gear:hover{background:rgba(59,130,246,.22);border-color:var(--blue);transform:rotate(45deg)}
 .tv-stage{position:relative;padding:clamp(12px,1.4vh,22px) 0;min-height:0;min-width:0}
 .slide{width:100%;height:100%;display:flex;flex-direction:column;animation:slideIn .4s cubic-bezier(.2,.9,.25,1)}
+/* Slides de fotos: tela inteira, sem corte nem deformação */
+.tv-shell.photo-mode{grid-template-rows:1fr;padding:0}
+.tv-shell.photo-mode .tv-header,.tv-shell.photo-mode .tv-footer{display:none}
+.tv-shell.photo-mode .tv-stage{padding:0;width:100vw;height:100vh}
+.photo-slide{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#05070d;overflow:hidden}
+.photo-slide img{display:block;width:100%;height:100%;object-fit:contain;object-position:center}
+.photo-slide .photo-loading{color:#cbd5e1;font-size:14px;letter-spacing:1px}
 @keyframes slideIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 .slide-head{display:flex;align-items:flex-end;justify-content:space-between;gap:clamp(12px,2vw,32px);padding:0 clamp(6px,1vw,20px) clamp(6px,.8vh,14px);border-bottom:1px solid var(--line);margin-bottom:clamp(8px,1.2vh,18px)}
 .slide-head .tt{display:flex;flex-direction:column;min-width:0}
@@ -318,7 +325,8 @@ const DEFAULT_CONFIG = {
     usuarios: true,
     donos: true,
     origens: true,
-    weather: true
+    weather: true,
+    repositoryPhotos: true
   }
 };
 let CONFIG = loadConfig();
@@ -344,6 +352,13 @@ let tickTimer = null;
 let tickStart = 0;
 let isPaused = false;
 let refreshTimer = null;
+
+/* Fotos do mesmo repositório GitHub Pages do sistema.
+   Em hospedagem github.io, proprietário e repositório são detectados automaticamente.
+   Para domínio próprio, preencha IMAGE_REPOSITORY abaixo. */
+const IMAGE_REPOSITORY = { owner: '', repo: '', branch: '' };
+let repositoryImages = [];
+let repositoryImagesLoaded = false;
 
 /* ---------- UTILS ---------- */
 function pad2(n){ return String(n).padStart(2,'0'); }
@@ -530,6 +545,17 @@ function buildSlides() {
     render: (container) => renderWeatherSlide(container)
   });
 
+  repositoryImages.forEach((photo, index) => {
+    slides.push({
+      id: 'repo-photo-' + index,
+      title: photo.name,
+      subtitle: 'Imagem do repositório',
+      isRepositoryPhoto: true,
+      imageUrl: photo.url,
+      imagePath: photo.path
+    });
+  });
+
   return slides;
 }
 
@@ -703,42 +729,59 @@ function renderSlideAt(idx) {
   if (!slide) return;
 
   const stage = document.getElementById('tvStage');
+  const shell = document.querySelector('.tv-shell');
   if (currentChart) { currentChart.destroy(); currentChart = null; }
   stage.innerHTML = '';
+  shell.classList.toggle('photo-mode', !!slide.isRepositoryPhoto);
 
-  const rows = filterByPeriod(allRows);
-  const total = sumQty(rows);
-
-  const head = document.createElement('div');
-  head.className = 'slide-head';
-  head.innerHTML = `
-    <div class="tt">
-      <h2>${escapeHtml(slide.title)}</h2>
-      <p>${escapeHtml(slide.subtitle || '')}</p>
-    </div>
-    ${slide.id === 'weather' ? '' : `<div class="total-badge">
-      <div class="lbl">${escapeHtml(slide.totalLabel || 'Total')}</div>
-      <div class="val">${fmtNum(total)}</div>
-    </div>`}
-  `;
-
-  const slideEl = document.createElement('div');
-  slideEl.className = 'slide';
-  slideEl.appendChild(head);
-
-  const chartWrap = document.createElement('div');
-  chartWrap.className = 'chart-wrap';
-
-  if (slide.id === 'resumo' || slide.id === 'weather') {
-    slideEl.appendChild(chartWrap);
-    stage.appendChild(slideEl);
-    slide.render(chartWrap, rows, total);
+  if (slide.isRepositoryPhoto) {
+    const photo = document.createElement('div');
+    photo.className = 'photo-slide';
+    const img = document.createElement('img');
+    img.alt = slide.title || 'Foto do repositório';
+    img.decoding = 'async';
+    img.loading = 'eager';
+    img.src = slide.imageUrl;
+    img.onerror = () => {
+      photo.innerHTML = '<div class="photo-loading">Não foi possível carregar esta imagem: ' + escapeHtml(slide.imagePath) + '</div>';
+    };
+    photo.appendChild(img);
+    stage.appendChild(photo);
   } else {
-    const canvas = document.createElement('canvas');
-    chartWrap.appendChild(canvas);
-    slideEl.appendChild(chartWrap);
-    stage.appendChild(slideEl);
-    slide.render(canvas, rows, total);
+    const rows = filterByPeriod(allRows);
+    const total = sumQty(rows);
+
+    const head = document.createElement('div');
+    head.className = 'slide-head';
+    head.innerHTML = `
+      <div class="tt">
+        <h2>${escapeHtml(slide.title)}</h2>
+        <p>${escapeHtml(slide.subtitle || '')}</p>
+      </div>
+      ${slide.id === 'weather' ? '' : `<div class="total-badge">
+        <div class="lbl">${escapeHtml(slide.totalLabel || 'Total')}</div>
+        <div class="val">${fmtNum(total)}</div>
+      </div>`}
+    `;
+
+    const slideEl = document.createElement('div');
+    slideEl.className = 'slide';
+    slideEl.appendChild(head);
+
+    const chartWrap = document.createElement('div');
+    chartWrap.className = 'chart-wrap';
+
+    if (slide.id === 'resumo' || slide.id === 'weather') {
+      slideEl.appendChild(chartWrap);
+      stage.appendChild(slideEl);
+      slide.render(chartWrap, rows, total);
+    } else {
+      const canvas = document.createElement('canvas');
+      chartWrap.appendChild(canvas);
+      slideEl.appendChild(chartWrap);
+      stage.appendChild(slideEl);
+      slide.render(canvas, rows, total);
+    }
   }
 
   renderDots();
@@ -807,13 +850,19 @@ atualizarRelogio();
 /* ---------- CONFIG ---------- */
 function buildChartsCheckboxes() {
   const grid = document.getElementById('cfgChartsGrid');
-  const todas = buildSlides();
-  grid.innerHTML = todas.map(s => `
+  const todas = buildSlides().filter(s => !s.isRepositoryPhoto);
+  const checks = todas.map(s => `
     <label class="chk">
       <input type="checkbox" data-chart="${s.id}" ${CONFIG.active[s.id] !== false ? 'checked' : ''}/>
       <span>${escapeHtml(s.title)}</span>
     </label>
   `).join('');
+  const photoCheck = `
+    <label class="chk">
+      <input type="checkbox" data-chart="repositoryPhotos" ${CONFIG.active.repositoryPhotos !== false ? 'checked' : ''}/>
+      <span>Fotos do repositório (${repositoryImages.length})</span>
+    </label>`;
+  grid.innerHTML = checks + photoCheck;
 }
 function abrirConfig() {
   document.getElementById('cfgInterval').value = CONFIG.intervalSec;
@@ -883,8 +932,62 @@ function showError(msg) {
 }
 function rebuildActiveSlides() {
   const todas = buildSlides();
-  activeSlides = todas.filter(s => CONFIG.active[s.id] !== false);
+  activeSlides = todas.filter(s => s.isRepositoryPhoto ? CONFIG.active.repositoryPhotos !== false : CONFIG.active[s.id] !== false);
   if (!activeSlides.length) activeSlides = todas.slice(0, 1);
+}
+
+/* ---------- FOTOS DO REPOSITÓRIO ---------- */
+function detectarRepositorioGitHub() {
+  if (IMAGE_REPOSITORY.owner && IMAGE_REPOSITORY.repo) {
+    return { owner: IMAGE_REPOSITORY.owner, repo: IMAGE_REPOSITORY.repo, branch: IMAGE_REPOSITORY.branch || 'main' };
+  }
+  const host = window.location.hostname;
+  if (!host.endsWith('.github.io')) return null;
+  const owner = host.slice(0, -'.github.io'.length);
+  const firstPath = window.location.pathname.split('/').filter(Boolean)[0];
+  const repo = firstPath || (owner + '.github.io');
+  return { owner, repo, branch: '' };
+}
+
+async function carregarFotosRepositorio() {
+  const repoInfo = detectarRepositorioGitHub();
+  if (!repoInfo) {
+    console.warn('[TV] Não foi possível detectar o repositório. Em domínio próprio, configure IMAGE_REPOSITORY no código.');
+    repositoryImages = [];
+    repositoryImagesLoaded = true;
+    return;
+  }
+
+  try {
+    let branch = repoInfo.branch;
+    if (!branch) {
+      const metaRes = await fetch(`https://api.github.com/repos/${encodeURIComponent(repoInfo.owner)}/${encodeURIComponent(repoInfo.repo)}`, { headers: { 'Accept': 'application/vnd.github+json' }, cache: 'no-store' });
+      if (!metaRes.ok) throw new Error('Não foi possível consultar os dados do repositório (' + metaRes.status + ').');
+      const meta = await metaRes.json();
+      branch = meta.default_branch || 'main';
+    }
+
+    const treeRes = await fetch(`https://api.github.com/repos/${encodeURIComponent(repoInfo.owner)}/${encodeURIComponent(repoInfo.repo)}/git/trees/${encodeURIComponent(branch)}?recursive=1`, { headers: { 'Accept': 'application/vnd.github+json' }, cache: 'no-store' });
+    if (!treeRes.ok) throw new Error('Não foi possível listar os arquivos do repositório (' + treeRes.status + ').');
+    const tree = await treeRes.json();
+    const imagePattern = /\.(?:jpe?g|png|webp|gif|avif|bmp|svg)$/i;
+    repositoryImages = (tree.tree || [])
+      .filter(item => item.type === 'blob' && imagePattern.test(item.path))
+      .sort((a, b) => a.path.localeCompare(b.path, 'pt-BR', { numeric: true }))
+      .map(item => ({
+        path: item.path,
+        name: item.path.split('/').pop(),
+        url: `https://raw.githubusercontent.com/${repoInfo.owner}/${repoInfo.repo}/${branch}/${item.path.split('/').map(encodeURIComponent).join('/')}`
+      }));
+    if (tree.truncated) console.warn('[TV] O GitHub informou que a listagem de arquivos foi truncada.');
+    console.log(`[TV] ${repositoryImages.length} imagem(ns) encontrada(s) em ${repoInfo.owner}/${repoInfo.repo}.`);
+  } catch (error) {
+    repositoryImages = [];
+    console.warn('[TV] Falha ao carregar fotos do repositório:', error);
+    showError('Não foi possível carregar as fotos do repositório: ' + (error.message || error));
+  } finally {
+    repositoryImagesLoaded = true;
+  }
 }
 
 /* ---------- REFRESH ---------- */
@@ -956,15 +1059,17 @@ let creditHideTimer=null;
 function mostrarCreditoTV(){if(localStorage.getItem('tv_dev_credit_enabled')==='0')return;const node=document.getElementById('devLowerThird')||(()=>{const n=document.createElement('div');n.id='devLowerThird';n.className='dev-lower-third';n.setAttribute('role','status');document.body.appendChild(n);return n;})();node.textContent=localStorage.getItem('tv_dev_credit_text')||'Desenvolvido por Pablo Martins Lopes';const seconds=Math.max(2,Math.min(30,Number(localStorage.getItem('tv_dev_credit_duration')||7)));clearTimeout(creditHideTimer);node.classList.remove('hide','show');void node.offsetWidth;node.classList.add('show');creditHideTimer=setTimeout(()=>{node.classList.remove('show');node.classList.add('hide');},seconds*1000);}
 
 /* ---------- BOOT ---------- */
-(function boot() {
-  rebuildActiveSlides();
-  currentIdx = 0;
+(async function boot() {
   atualizarTemaAutomatico();
   setInterval(atualizarTemaAutomatico,60000);
   configurarRealtimeTV();
   atualizarPrevisaoTempo();
   weatherRefreshTimer=setInterval(atualizarPrevisaoTempo,5*60*1000);
-  refreshData(false);
+  await carregarFotosRepositorio();
+  rebuildActiveSlides();
+  currentIdx = 0;
+  buildChartsCheckboxes();
+  await refreshData(false);
   refreshTimer = setInterval(() => refreshData(true), 5 * 60 * 1000);
 })();
 
